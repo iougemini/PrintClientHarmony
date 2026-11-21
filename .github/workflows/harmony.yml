@@ -56,6 +56,10 @@ jobs:
             if [ -z "$CLT_PATH" ] || [ ! -d "$CLT_PATH" ]; then
               echo "::error::解压后未找到 command-line-tools 目录"; exit 1
             fi
+            # zip 不保留 Unix 权限位，解压后 node/hvigorw 等可执行文件丢失 x 位，
+            # 会导致 "Permission denied"（exit 126）。递归给 bin 目录下文件加执行权限。
+            sudo find "$CLT_PATH" -path '*/bin/*' -type f -exec chmod +x {} \; 2>/dev/null || true
+            sudo chmod +x "$CLT_PATH/tool/node/bin/node" 2>/dev/null || true
             echo "解压到: $CLT_PATH"
           else
             echo "::error::未配置命令行工具来源。"
