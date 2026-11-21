@@ -131,7 +131,9 @@ jobs:
       - name: 编译 HAP
         run: |
           set -eo pipefail
-          devecocli build --product default --build-mode debug --modules entry --clean
+          sudo chmod -R 755 "$DEVECO_CLI_CLT_PATH"
+          # devecocli build 不支持 --clean（clean 是独立命令），全新 runner 也无需清理
+          devecocli build --product default --build-mode debug --modules entry
 
       # 9. 查看产物
       - name: 查看产物
