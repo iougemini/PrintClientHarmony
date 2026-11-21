@@ -1,0 +1,149 @@
+name: 打包 HAP
+
+on:
+  workflow_dispatch:
+    # 手动触发时可注入命令行工具下载令牌（下载中心 API 需华为账号登录态）
+    inputs:
+      clt_token:
+        description: '命令行工具下载令牌（下载中心 API 鉴权用）。留空则尝试使用仓库 secret DEVECO_CLI_TOKEN。'
+        required: false
+  push:
+    branches: [ main, master ]
+
+env:
+  # 默认用仓库 secret；手动触发时可被 workflow input 覆盖
+  DEVECO_CLI_TOKEN: ${{ secrets.DEVECO_CLI_TOKEN }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. 配置 JDK 17（命令行工具 26.0.0 以下版本推荐 JDK 17）
+      - name: 配置 JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 2. 安装 devecocli（鸿蒙官方命令行构建工具，npm 全局安装）
+      #    它支持 CLT（Command Line Tools）模式，Linux 上无需 DevEco Studio
+      - name: 安装 devecocli
+        run: |
+          set -eo pipefail
+          npm install -g @deveco/deveco-cli@stable
+          devecocli --version
+
+      # 3. 获取 HarmonyOS 命令行工具（内含 hvigorw / ohpm / hdc / SDK）
+      #    两条路径：
+      #      a) 若已注入 DEVECO_CLI_CLT_PATH（用户自备 CLT 目录）→ 直接用
+      #      b) 否则从华为下载中心 API 获取下载 URL → 下载解压 → 设置 DEVECO_CLI_CLT_PATH
+      #    下载中心 API 需要华为账号登录态，用 DEVECO_CLI_TOKEN 鉴权
+      - name: 获取命令行工具
+        id: clt
+        run: |
+          set -eo pipefail
+          # 路径 a：用户已注入 CLT 目录
+          if [ -n "${{ env.DEVECO_CLI_CLT_PATH }}" ]; then
+            echo "使用注入的 CLT 目录: ${{ env.DEVECO_CLI_CLT_PATH }}"
+            echo "clt-path=${{ env.DEVECO_CLI_CLT_PATH }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 路径 b：从下载中心 API 获取
+          TOKEN="${{ env.DEVECO_CLI_TOKEN }}"
+          if [ -z "$TOKEN" ]; then
+            echo "::error::未配置命令行工具来源。请设置仓库 secret DEVECO_CLI_CLT_PATH（CLT 目录）或 DEVECO_CLI_TOKEN（下载令牌）。"
+            exit 1
+          fi
+
+          API_BASE="https://svc-drcn.developer.huawei.com/codeserver"
+          # 下载中心 API：获取工具列表，定位 commandline-tools
+          TOOL_LIST=$(curl -s -X POST "$API_BASE" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $TOKEN" \
+            -d '{"auiRequestInfo":{"isCodeServer":true,"svc":"PartnerCommunityService/v1/developer/downloadCenter/getToolList"}}')
+          echo "工具列表响应: ${TOOL_LIST:0:500}"
+
+          # 取 commandline-tools 的下载 URL（单行 python，避免 YAML 缩进问题）
+          DL_URL=$(echo "$TOOL_LIST" | python3 -c "import sys,json; d=json.load(sys.stdin); f=lambda o: next((o[k] for k in ['downloadUrl','url','newUrl','downloadURL','fileUrl'] if o.get(k)), None) if isinstance(o,dict) and ('commandline' in json.dumps(o,ensure_ascii=False).lower() or 'command-line' in json.dumps(o,ensure_ascii=False).lower()) else next((f(v) for v in (o.values() if isinstance(o,dict) else (o or []))), None); print(f(d) or '')" 2>/dev/null || true)
+          if [ -z "$DL_URL" ]; then
+            echo "::error::未能从下载中心 API 解析 commandline-tools 下载 URL。响应见上。"
+            exit 1
+          fi
+
+          # 下载并解压
+          cd /opt
+          sudo curl -sL "$DL_URL" -o commandline-tools.zip
+          sudo unzip -q commandline-tools.zip
+          sudo rm -f commandline-tools.zip
+          CLT_DIR="/opt/command-line-tools"
+          if [ ! -d "$CLT_DIR" ]; then
+            # 解压后目录名可能不同，取含 command-line-tools 的目录
+            CLT_DIR=$(sudo find /opt -maxdepth 2 -type d -name 'command-line-tools' | head -1)
+          fi
+          if [ -z "$CLT_DIR" ] || [ ! -d "$CLT_DIR" ]; then
+            echo "::error::解压后未找到 command-line-tools 目录"; exit 1
+          fi
+          echo "clt-path=$CLT_DIR" >> $GITHUB_OUTPUT
+          echo "CLT 目录: $CLT_DIR"
+
+      # 4. 配置 CLT 环境变量（devecocli CLT 模式用）
+      - name: 配置 CLT 环境变量
+        run: |
+          set -eo pipefail
+          CLT_PATH="${{ steps.clt.outputs.clt-path }}"
+          echo "DEVECO_CLI_CLT_PATH=$CLT_PATH" >> $GITHUB_ENV
+          echo "PATH=$CLT_PATH/bin:$PATH" >> $GITHUB_ENV
+          # 校验 CLT：读 version.txt 的 apiVersion（devecocli 要求 >=17）
+          cat "$CLT_PATH/version.txt" 2>/dev/null || true
+          devecocli --version
+
+      # 5. 配置 ohpm 仓库地址
+      - name: 配置 ohpm 仓库
+        run: |
+          set -eo pipefail
+          ohpm config set registry https://ohpm.openharmony.cn/ohpm/
+          ohpm config set strict_ssl false
+
+      # 6. icon 自检：确认仓库里的图标是 logo.png 生成的那一套，没有被模板覆盖
+      - name: 校验图标资源
+        run: |
+          set -eo pipefail
+          ICON=entry/src/main/resources/base/media/app_icon.png
+          if [ ! -f "$ICON" ]; then
+            echo "::error::缺少 $ICON（图标被删了）"; exit 1
+          fi
+          SIZE=$(stat -c%s "$ICON")
+          echo "app_icon.png 大小: $SIZE 字节"
+          if [ "$SIZE" -lt 10000 ]; then
+            echo "::error::app_icon.png 过小（$SIZE 字节），可能被模板图标覆盖"; exit 1
+          fi
+          echo "✅ 图标资源就位"
+
+      # 7. 安装工程及模块依赖
+      - name: 安装依赖
+        run: |
+          set -eo pipefail
+          ohpm install --all
+          cd entry
+          ohpm install --all
+
+      # 8. 编译 Debug HAP（内网自用，debug 未签名包即可，与安卓 debug APK 一致）
+      - name: 编译 HAP
+        run: |
+          set -eo pipefail
+          devecocli build --product default --build-mode debug --modules entry --clean
+
+      # 9. 查看产物
+      - name: 查看产物
+        run: ls -lh entry/build/default/outputs/default/
+
+      # 10. 上传产物
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PrintClient-Harmony-debug
+          path: entry/build/default/outputs/default/*.hap
+          retention-days: 30

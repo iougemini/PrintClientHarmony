@@ -1,0 +1,31 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "瑜华印务管理系统 · 鸿蒙客户端" },
+    { "name": "EntryAbility_desc", "value": "瑜华印务管理系统" },
+    { "name": "EntryAbility_label", "value": "瑜华印务" },
+    { "name": "reason_internet", "value": "加载内网印刷管理系统页面与数据" },
+    { "name": "reason_print", "value": "把网页单据转成系统打印" },
+    { "name": "app_name", "value": "瑜华印务" },
+    { "name": "setup_title", "value": "服务器设置" },
+    { "name": "setup_head", "value": "连接内网服务器" },
+    { "name": "setup_desc", "value": "填一次内网地址，以后打开就是「瑜华印务管理系统」。\n地址在启动系统的那台电脑的黑色窗口里，形如 192.168.1.50。" },
+    { "name": "setup_label", "value": "内网地址" },
+    { "name": "setup_test", "value": "测试并进入" },
+    { "name": "setup_testing", "value": "正在测试连接…" },
+    { "name": "setup_tip", "value": "提示：手机必须连厂里同一个 WiFi / 交换机，服务端电脑不能休眠。\n只填 IP（如 192.168.1.50）会自动补 http:// 和 :8090。" },
+    { "name": "err_title", "value": "连不上服务器" },
+    { "name": "err_retry", "value": "重试" },
+    { "name": "err_change", "value": "修改地址" },
+    { "name": "err_hint", "value": "检查：① 手机是否在同一局域网 ② 服务端电脑是否开机、系统是否已启动 ③ 8090 端口是否被防火墙拦截" },
+    { "name": "err_bad_url", "value": "地址格式不对，请只填 IP 或完整 http 地址" },
+    { "name": "exit_hint", "value": "再按一次退出" },
+    { "name": "save_ok", "value": "已保存到「下载/印刷系统导出/」" },
+    { "name": "save_fail", "value": "保存失败：" },
+    { "name": "print_unsupported", "value": "当前系统不支持打印" },
+    { "name": "print_busy", "value": "打印任务正在进行" },
+    { "name": "probe_timeout", "value": "连接超时（服务端电脑没开机 / 不在同一局域网 / 防火墙拦截）" },
+    { "name": "probe_refused", "value": "连接被拒绝（端口写错，或服务端没启动）" },
+    { "name": "probe_unknown", "value": "地址无法解析，请检查 IP" },
+    { "name": "probe_http", "value": "服务器返回异常 HTTP 状态" }
+  ]
+}

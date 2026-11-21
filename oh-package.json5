@@ -1,0 +1,9 @@
+{
+  "description": "瑜华印务管理系统 · 鸿蒙客户端（PrintClientHarmony）",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "hvigorw assembleHap"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

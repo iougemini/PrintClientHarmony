@@ -1,0 +1,10 @@
+{
+  "color": [
+    { "name": "start_window_bg", "value": "#F5F4F0" },
+    { "name": "paper", "value": "#F5F4F0" },
+    { "name": "brand", "value": "#C33D22" },
+    { "name": "ink", "value": "#1F1F1F" },
+    { "name": "text_2", "value": "#666666" },
+    { "name": "brand_light", "value": "#FBE9E5" }
+  ]
+}

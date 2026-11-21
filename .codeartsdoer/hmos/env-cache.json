@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-11-20T14:08:30.342Z",
+  "devecocli": {
+    "path": "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\devecocli.cmd",
+    "version": "1.3.0-stable",
+    "installType": "npm_global"
+  },
+  "detectedBy": {
+    "devecocli": "npm_global"
+  }
+}

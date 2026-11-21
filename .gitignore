@@ -1,0 +1,16 @@
+# 鸿蒙客户端构建产物
+entry/build/
+.hvigor/
+build/
+*.hap
+*.hsp
+*.har
+*.app
+
+# 编辑器
+.idea/
+.vscode/
+
+# 系统文件
+.DS_Store
+Thumbs.db
