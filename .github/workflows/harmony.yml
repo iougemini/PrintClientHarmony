@@ -67,22 +67,27 @@ jobs:
           echo "clt-path=$CLT_PATH" >> $GITHUB_OUTPUT
 
       # 4. 配置 CLT 环境变量（devecocli CLT 模式用）
+      #    注意：6.0.1 的 CLT 里 ohpm 不是 bin/ohpm 可执行文件，而是 ohpm/bin/pm-cli.js，
+      #    必须用 CLT 内置的 node（tool/node/bin/node）运行。devecocli 源码 buildCltToolPaths 确认。
       - name: 配置 CLT 环境变量
         run: |
           set -eo pipefail
           CLT_PATH="${{ steps.clt.outputs.clt-path }}"
           echo "DEVECO_CLI_CLT_PATH=$CLT_PATH" >> $GITHUB_ENV
           echo "PATH=$CLT_PATH/bin:$PATH" >> $GITHUB_ENV
+          # CLT 内置 node 与 ohpm 入口（devecocli CLT 模式路径）
+          echo "CLT_NODE=$CLT_PATH/tool/node/bin/node" >> $GITHUB_ENV
+          echo "CLT_OHPM=$CLT_PATH/ohpm/bin/pm-cli.js" >> $GITHUB_ENV
           # 校验 CLT：version.txt 的 apiVersion 需 >=17
           cat "$CLT_PATH/version.txt" 2>/dev/null || true
           devecocli --version
 
-      # 5. 配置 ohpm 仓库地址
+      # 5. 配置 ohpm 仓库地址（用 CLT 内置 node 执行 pm-cli.js）
       - name: 配置 ohpm 仓库
         run: |
           set -eo pipefail
-          ohpm config set registry https://ohpm.openharmony.cn/ohpm/
-          ohpm config set strict_ssl false
+          "$CLT_NODE" "$CLT_OHPM" config set registry https://ohpm.openharmony.cn/ohpm/
+          "$CLT_NODE" "$CLT_OHPM" config set strict_ssl false
 
       # 6. icon 自检：确认仓库里的图标是 logo.png 生成的那一套，没有被模板覆盖
       - name: 校验图标资源
@@ -99,13 +104,13 @@ jobs:
           fi
           echo "✅ 图标资源就位"
 
-      # 7. 安装工程及模块依赖
+      # 7. 安装工程及模块依赖（用 CLT 内置 node 执行 pm-cli.js）
       - name: 安装依赖
         run: |
           set -eo pipefail
-          ohpm install --all
+          "$CLT_NODE" "$CLT_OHPM" install --all
           cd entry
-          ohpm install --all
+          "$CLT_NODE" "$CLT_OHPM" install --all
 
       # 8. 编译 Debug HAP（内网自用，debug 未签名包即可，与安卓 debug APK 一致）
       - name: 编译 HAP
