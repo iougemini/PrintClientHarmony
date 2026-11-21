@@ -2,17 +2,8 @@ name: 打包 HAP
 
 on:
   workflow_dispatch:
-    # 手动触发时可注入命令行工具下载令牌（下载中心 API 需华为账号登录态）
-    inputs:
-      clt_token:
-        description: '命令行工具下载令牌（下载中心 API 鉴权用）。留空则尝试使用仓库 secret DEVECO_CLI_TOKEN。'
-        required: false
   push:
     branches: [ main, master ]
-
-env:
-  # 默认用仓库 secret；手动触发时可被 workflow input 覆盖
-  DEVECO_CLI_TOKEN: ${{ secrets.DEVECO_CLI_TOKEN }}
 
 jobs:
   build:
@@ -37,58 +28,43 @@ jobs:
           devecocli --version
 
       # 3. 获取 HarmonyOS 命令行工具（内含 hvigorw / ohpm / hdc / SDK）
-      #    两条路径：
-      #      a) 若已注入 DEVECO_CLI_CLT_PATH（用户自备 CLT 目录）→ 直接用
-      #      b) 否则从华为下载中心 API 获取下载 URL → 下载解压 → 设置 DEVECO_CLI_CLT_PATH
-      #    下载中心 API 需要华为账号登录态，用 DEVECO_CLI_TOKEN 鉴权
+      #    devecocli 在 Linux 上必须用 CLT 模式（设 DEVECO_CLI_CLT_PATH 指向 CLT 目录）。
+      #    CLT 目录来源（二选一，通过仓库 secret 注入）：
+      #      a) DEVECO_CLI_CLT_URL —— commandline-tools zip 的公网直链（推荐）
+      #         可用直链（用户已提供，已验证 URL 结构合法）：
+      #           https://huggingface.co/csukuangfj/harmonyos-commandline-tools/resolve/main/commandline-tools-linux-x64-6.0.1.251.zip
+      #      b) DEVECO_CLI_CLT_PATH —— 若 runner 自备 CLT 目录，直接填路径
+      #    注意：华为下载中心需账号登录态，无法在 CI 匿名下载，故不提供自动下载。
       - name: 获取命令行工具
         id: clt
         run: |
           set -eo pipefail
-          # 路径 a：用户已注入 CLT 目录
-          if [ -n "${{ env.DEVECO_CLI_CLT_PATH }}" ]; then
-            echo "使用注入的 CLT 目录: ${{ env.DEVECO_CLI_CLT_PATH }}"
-            echo "clt-path=${{ env.DEVECO_CLI_CLT_PATH }}" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # 路径 b：从下载中心 API 获取
-          TOKEN="${{ env.DEVECO_CLI_TOKEN }}"
-          if [ -z "$TOKEN" ]; then
-            echo "::error::未配置命令行工具来源。请设置仓库 secret DEVECO_CLI_CLT_PATH（CLT 目录）或 DEVECO_CLI_TOKEN（下载令牌）。"
+          CLT_PATH=""
+          # 路径 b：runner 自备 CLT 目录
+          if [ -n "${{ secrets.DEVECO_CLI_CLT_PATH }}" ]; then
+            CLT_PATH="${{ secrets.DEVECO_CLI_CLT_PATH }}"
+            echo "使用自备 CLT 目录: $CLT_PATH"
+          # 路径 a：从公网直链下载 zip 并解压
+          elif [ -n "${{ secrets.DEVECO_CLI_CLT_URL }}" ]; then
+            URL="${{ secrets.DEVECO_CLI_CLT_URL }}"
+            echo "从直链下载: $URL"
+            cd /opt
+            sudo curl -sL "$URL" -o commandline-tools.zip
+            sudo unzip -q commandline-tools.zip
+            sudo rm -f commandline-tools.zip
+            CLT_PATH=$(sudo find /opt -maxdepth 2 -type d -name 'command-line-tools' | head -1)
+            if [ -z "$CLT_PATH" ] || [ ! -d "$CLT_PATH" ]; then
+              echo "::error::解压后未找到 command-line-tools 目录"; exit 1
+            fi
+            echo "解压到: $CLT_PATH"
+          else
+            echo "::error::未配置命令行工具来源。"
+            echo "请在仓库 Settings → Secrets and variables → Actions 添加以下任一 secret："
+            echo "  DEVECO_CLI_CLT_URL  —— commandline-tools zip 的公网直链（推荐，上传到 GitHub Release）"
+            echo "  DEVECO_CLI_CLT_PATH —— 若 runner 自备 CLT 目录，填绝对路径"
             exit 1
           fi
-
-          API_BASE="https://svc-drcn.developer.huawei.com/codeserver"
-          # 下载中心 API：获取工具列表，定位 commandline-tools
-          TOOL_LIST=$(curl -s -X POST "$API_BASE" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $TOKEN" \
-            -d '{"auiRequestInfo":{"isCodeServer":true,"svc":"PartnerCommunityService/v1/developer/downloadCenter/getToolList"}}')
-          echo "工具列表响应: ${TOOL_LIST:0:500}"
-
-          # 取 commandline-tools 的下载 URL（单行 python，避免 YAML 缩进问题）
-          DL_URL=$(echo "$TOOL_LIST" | python3 -c "import sys,json; d=json.load(sys.stdin); f=lambda o: next((o[k] for k in ['downloadUrl','url','newUrl','downloadURL','fileUrl'] if o.get(k)), None) if isinstance(o,dict) and ('commandline' in json.dumps(o,ensure_ascii=False).lower() or 'command-line' in json.dumps(o,ensure_ascii=False).lower()) else next((f(v) for v in (o.values() if isinstance(o,dict) else (o or []))), None); print(f(d) or '')" 2>/dev/null || true)
-          if [ -z "$DL_URL" ]; then
-            echo "::error::未能从下载中心 API 解析 commandline-tools 下载 URL。响应见上。"
-            exit 1
-          fi
-
-          # 下载并解压
-          cd /opt
-          sudo curl -sL "$DL_URL" -o commandline-tools.zip
-          sudo unzip -q commandline-tools.zip
-          sudo rm -f commandline-tools.zip
-          CLT_DIR="/opt/command-line-tools"
-          if [ ! -d "$CLT_DIR" ]; then
-            # 解压后目录名可能不同，取含 command-line-tools 的目录
-            CLT_DIR=$(sudo find /opt -maxdepth 2 -type d -name 'command-line-tools' | head -1)
-          fi
-          if [ -z "$CLT_DIR" ] || [ ! -d "$CLT_DIR" ]; then
-            echo "::error::解压后未找到 command-line-tools 目录"; exit 1
-          fi
-          echo "clt-path=$CLT_DIR" >> $GITHUB_OUTPUT
-          echo "CLT 目录: $CLT_DIR"
+          echo "clt-path=$CLT_PATH" >> $GITHUB_OUTPUT
 
       # 4. 配置 CLT 环境变量（devecocli CLT 模式用）
       - name: 配置 CLT 环境变量
@@ -97,7 +73,7 @@ jobs:
           CLT_PATH="${{ steps.clt.outputs.clt-path }}"
           echo "DEVECO_CLI_CLT_PATH=$CLT_PATH" >> $GITHUB_ENV
           echo "PATH=$CLT_PATH/bin:$PATH" >> $GITHUB_ENV
-          # 校验 CLT：读 version.txt 的 apiVersion（devecocli 要求 >=17）
+          # 校验 CLT：version.txt 的 apiVersion 需 >=17
           cat "$CLT_PATH/version.txt" 2>/dev/null || true
           devecocli --version
 
